@@ -12,6 +12,9 @@ on:
       - '**/*.tf'
       - '.github/workflows/release.yml'
 
+env:
+  RELEASE_VERSION: "25.0.0"
+
 jobs:
   release:
     name: Release
@@ -40,6 +43,50 @@ jobs:
       - name: Release
         uses: cycjimmy/semantic-release-action@v5
         with:
-          semantic_version: 25.0.0
+          semantic_version: ${{ env.RELEASE_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
+
+  tofu-modules:
+    name: Release OCI artifact
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write # needed to publish oci artifact to ghcr.io
+    # Skip running release workflow on forks
+    if: github.repository_owner == 'terraform-aws-modules'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # Login to registry
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install oras tool
+        uses: oras-project/setup-oras@v2.0.0
+
+      - name: Create zip file
+        run: |-
+          mkdir -p /home/runner/work/modules
+          zip -r /home/runner/work/modules/terraform-aws-eks.zip . -x "*.git*"
+
+      - name: Publish Artifact
+        working-directory: /home/runner/work/modules
+        run: |-
+          oras push ghcr.io/${{ github.repository_owner }}/opentofu-modules/eks:latest \
+            --artifact-type application/vnd.opentofu.modulepkg \
+            terraform-aws-eks.zip:archive/zip
+
+      - name: Create tagged version
+        run: |-
+
+      - name: Create manifest list and pushes
+        run: |-
+          oras tag  ghcr.io/${{ github.repository_owner }}/opentofu-modules/eks:latest ${{ env.RELEASE_VERSION }}
